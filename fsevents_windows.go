@@ -1,0 +1,377 @@
+//
+// File:   fsevents_windows.go
+// Date:   October 29, 2013
+// Author: Peter Krnjevic <pkrnjevic@gmail.com>, on the shoulders of many others
+//
+// This code sample is released into the Public Domain.
+//
+package main
+
+import (
+	"fmt"
+	"reflect"
+	"syscall"
+	"unsafe"
+)
+
+// "github.com/lxn/go-winapi"
+// "github.com/lxn/walk"
+
+type (
+	WCHAR         uint16
+	WORD          uint16
+	DWORD         uint32
+	DWORDLONG     uint64
+	LONGLONG      int64
+	USN           int64
+	LARGE_INTEGER LONGLONG
+)
+
+type USN_JOURNAL_DATA struct {
+	UsnJournalID    DWORDLONG
+	FirstUsn        USN
+	NextUsn         USN
+	LowestValidUsn  USN
+	MaxUsn          USN
+	MaximumSize     DWORDLONG
+	AllocationDelta DWORDLONG
+}
+
+type READ_USN_JOURNAL_DATA struct {
+	StartUsn          USN
+	ReasonMask        DWORD
+	ReturnOnlyOnClose DWORD
+	Timeout           DWORDLONG
+	BytesToWaitFor    DWORDLONG
+	UsnJournalID      DWORDLONG
+}
+
+type USN_RECORD struct {
+	RecordLength              DWORD
+	MajorVersion              WORD
+	MinorVersion              WORD
+	FileReferenceNumber       DWORDLONG
+	ParentFileReferenceNumber DWORDLONG
+	Usn                       USN
+	TimeStamp                 LARGE_INTEGER
+	Reason                    DWORD
+	SourceInfo                DWORD
+	SecurityId                DWORD
+	FileAttributes            DWORD
+	FileNameLength            WORD
+	FileNameOffset            WORD
+	FileName                  [1]WCHAR
+}
+
+type MFT_ENUM_DATA struct {
+	StartFileReferenceNumber DWORDLONG
+	LowUsn                   USN
+	HighUsn                  USN
+}
+
+const (
+	FSCTL_ENUM_USN_DATA        = 0x900B3
+	FSCTL_QUERY_USN_JOURNAL    = 0x900F4
+	FSCTL_READ_USN_JOURNAL     = 0x900BB
+	O_RDONLY                   = syscall.O_RDONLY
+	O_RDWR                     = syscall.O_RDWR
+	O_CREAT                    = syscall.O_CREAT
+	O_WRONLY                   = syscall.O_WRONLY
+	GENERIC_READ               = syscall.GENERIC_READ
+	GENERIC_WRITE              = syscall.GENERIC_WRITE
+	FILE_APPEND_DATA           = syscall.FILE_APPEND_DATA
+	FILE_SHARE_READ            = syscall.FILE_SHARE_READ
+	FILE_SHARE_WRITE           = syscall.FILE_SHARE_WRITE
+	ERROR_FILE_NOT_FOUND       = syscall.ERROR_FILE_NOT_FOUND
+	O_APPEND                   = syscall.O_APPEND
+	O_CLOEXEC                  = syscall.O_CLOEXEC
+	O_EXCL                     = syscall.O_EXCL
+	O_TRUNC                    = syscall.O_TRUNC
+	CREATE_ALWAYS              = syscall.CREATE_ALWAYS
+	CREATE_NEW                 = syscall.CREATE_NEW
+	OPEN_ALWAYS                = syscall.OPEN_ALWAYS
+	TRUNCATE_EXISTING          = syscall.TRUNCATE_EXISTING
+	OPEN_EXISTING              = syscall.OPEN_EXISTING
+	FILE_ATTRIBUTE_NORMAL      = syscall.FILE_ATTRIBUTE_NORMAL
+	FILE_FLAG_BACKUP_SEMANTICS = syscall.FILE_FLAG_BACKUP_SEMANTICS
+	FILE_ATTRIBUTE_DIRECTORY   = syscall.FILE_ATTRIBUTE_DIRECTORY
+	MAX_LONG_PATH              = syscall.MAX_LONG_PATH
+)
+
+var (
+	modkernel32         = syscall.NewLazyDLL("kernel32.dll")
+	procDeviceIoControl = modkernel32.NewProc("DeviceIoControl")
+	usnJournalData      USN_JOURNAL_DATA
+	readUsnJournalData  READ_USN_JOURNAL_DATA
+	cb                  int
+)
+
+func getPointer(i interface{}) (pointer, size uintptr) {
+	v := reflect.ValueOf(i)
+	switch k := v.Kind(); k {
+	case reflect.Ptr:
+		t := v.Elem().Type()
+		size = t.Size()
+		pointer = v.Pointer()
+	case reflect.Slice:
+		size = uintptr(v.Cap())
+		pointer = v.Pointer()
+	default:
+		fmt.Println("oops")
+	}
+	return
+}
+
+func DeviceIoControl(handle syscall.Handle, controlCode uint32, in interface{}, out interface{}, done *uint32) (err error) {
+	inPtr, inSize := getPointer(in)
+	outPtr, outSize := getPointer(out)
+	r1, _, e1 := syscall.Syscall9(procDeviceIoControl.Addr(), 8, uintptr(handle), uintptr(controlCode), inPtr, uintptr(inSize), outPtr, uintptr(outSize), uintptr(unsafe.Pointer(done)), uintptr(0), 0)
+	if r1 == 0 {
+		if e1 != 0 {
+			err = error(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	return
+}
+
+func makeInheritSa() *syscall.SecurityAttributes {
+	var sa syscall.SecurityAttributes
+	sa.Length = uint32(unsafe.Sizeof(sa))
+	sa.InheritHandle = 1
+	return &sa
+}
+
+// Need a custom Open to work with backup_semantics
+func open(path string, mode int, attrs uint32) (fd syscall.Handle, err error) {
+	if len(path) == 0 {
+		return syscall.InvalidHandle, ERROR_FILE_NOT_FOUND
+	}
+	pathp, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return syscall.InvalidHandle, err
+	}
+	var access uint32
+	switch mode & (O_RDONLY | O_WRONLY | O_RDWR) {
+	case O_RDONLY:
+		access = GENERIC_READ
+	case O_WRONLY:
+		access = GENERIC_WRITE
+	case O_RDWR:
+		access = GENERIC_READ | GENERIC_WRITE
+	}
+	if mode&O_CREAT != 0 {
+		access |= GENERIC_WRITE
+	}
+	if mode&O_APPEND != 0 {
+		access &^= GENERIC_WRITE
+		access |= FILE_APPEND_DATA
+	}
+	sharemode := uint32(FILE_SHARE_READ | FILE_SHARE_WRITE)
+	var sa *syscall.SecurityAttributes
+	if mode&O_CLOEXEC == 0 {
+		sa = makeInheritSa()
+	}
+	var createmode uint32
+	switch {
+	case mode&(O_CREAT|O_EXCL) == (O_CREAT | O_EXCL):
+		createmode = CREATE_NEW
+	case mode&(O_CREAT|O_TRUNC) == (O_CREAT | O_TRUNC):
+		createmode = CREATE_ALWAYS
+	case mode&O_CREAT == O_CREAT:
+		createmode = OPEN_ALWAYS
+	case mode&O_TRUNC == O_TRUNC:
+		createmode = TRUNCATE_EXISTING
+	default:
+		createmode = OPEN_EXISTING
+	}
+	h, e := syscall.CreateFile(pathp, access, sharemode, sa, createmode, attrs, 0)
+	return h, e
+}
+
+func getUsnJournalReasonString(reason DWORD) (s string) {
+	var reasons = []string{
+		"DataOverwrite",       // 0x00000001
+		"DataExtend",          // 0x00000002
+		"DataTruncation",      // 0x00000004
+		"0x00000008",          // 0x00000008
+		"NamedDataOverwrite",  // 0x00000010
+		"NamedDataExtend",     // 0x00000020
+		"NamedDataTruncation", // 0x00000040
+		"0x00000080",          // 0x00000080
+		"FileCreate",          // 0x00000100
+		"FileDelete",          // 0x00000200
+		"PropertyChange",      // 0x00000400
+		"SecurityChange",      // 0x00000800
+		"RenameOldName",       // 0x00001000
+		"RenameNewName",       // 0x00002000
+		"IndexableChange",     // 0x00004000
+		"BasicInfoChange",     // 0x00008000
+		"HardLinkChange",      // 0x00010000
+		"CompressionChange",   // 0x00020000
+		"EncryptionChange",    // 0x00040000
+		"ObjectIdChange",      // 0x00080000
+		"ReparsePointChange",  // 0x00100000
+		"StreamChange",        // 0x00200000
+		"0x00400000",          // 0x00400000
+		"0x00800000",          // 0x00800000
+		"0x01000000",          // 0x01000000
+		"0x02000000",          // 0x02000000
+		"0x04000000",          // 0x04000000
+		"0x08000000",          // 0x08000000
+		"0x10000000",          // 0x10000000
+		"0x20000000",          // 0x20000000
+		"0x40000000",          // 0x40000000
+		"*Close*",             // 0x80000000
+	}
+	for i := 0; reason != 0; {
+		if reason&1 == 1 {
+			s = s + ", " + reasons[i]
+		}
+		reason >>= 1
+		i++
+	}
+	return
+}
+
+// Query usn journal data
+func queryUsnJournal(fd syscall.Handle) (ujd USN_JOURNAL_DATA, done uint32, err error) {
+	err = DeviceIoControl(fd, FSCTL_QUERY_USN_JOURNAL, []byte{}, &ujd, &done)
+	return
+}
+
+func readUsnJournal(fd syscall.Handle, rujd *READ_USN_JOURNAL_DATA) (data []byte, done uint32, err error) {
+	data = make([]byte, 0x1000)
+	err = DeviceIoControl(fd, FSCTL_READ_USN_JOURNAL, rujd, data, &done)
+	return
+}
+
+func enumUsnData(fd syscall.Handle, med *MFT_ENUM_DATA) (data []byte, done uint32, err error) {
+	data = make([]byte, 0x10000)
+	err = DeviceIoControl(fd, FSCTL_ENUM_USN_DATA, med, data, &done)
+	return
+}
+
+type folderEntry struct {
+	name   string
+	parent DWORDLONG
+}
+
+// Build map of folder names using MFT (based on PopulateMethod2)
+func BuildFolderMap() (path string, folders map[DWORDLONG]folderEntry) {
+	folders = make(map[DWORDLONG]folderEntry)
+	//drives, _ := walk.DriveNames()
+	//fmt.Println(drives)
+
+	fd, _ := open("\\\\.\\"+path, syscall.O_RDONLY, FILE_ATTRIBUTE_NORMAL)
+	//fmt.Println(fd, err)
+
+	ujd, _, _ := queryUsnJournal(fd)
+	//fmt.Printf("ujd = %v\n", ujd)
+
+	// Open directory to read MFT and store off FRN (file reference numbers)
+	dir, _ := open(path, syscall.O_RDONLY, FILE_FLAG_BACKUP_SEMANTICS)
+	//fmt.Println("dir,err", dir, err)
+
+	var fi syscall.ByHandleFileInformation
+	_ = syscall.GetFileInformationByHandle(dir, &fi)
+	_ = syscall.CloseHandle(dir)
+	//fmt.Println("err, fi", err, fi)
+
+	indexRoot := fi.FileSizeHigh<<32 | fi.FileSizeLow
+	_ = indexRoot
+
+	med := MFT_ENUM_DATA{0, 0, ujd.NextUsn}
+
+	for {
+		data, done, err := enumUsnData(fd, &med)
+		if err != nil {
+			//fmt.Println(err)
+		}
+		if done == 0 {
+			return
+		}
+
+		var usn USN = *(*USN)(unsafe.Pointer(&data[0]))
+		// fmt.Println("usn", usn)
+
+		var ur *USN_RECORD
+		for i := unsafe.Sizeof(usn); i < uintptr(done); i += uintptr(ur.RecordLength) {
+			ur = (*USN_RECORD)(unsafe.Pointer(&data[i]))
+			if ur.FileAttributes&FILE_ATTRIBUTE_DIRECTORY != 0 {
+				nameLength := uintptr(ur.FileNameLength) / unsafe.Sizeof(ur.FileName[0])
+				fnp := unsafe.Pointer(&data[i+uintptr(ur.FileNameOffset)])
+				fnUtf := (*[10000]uint16)(fnp)[:nameLength]
+				fn := syscall.UTF16ToString(fnUtf)
+				(*reflect.SliceHeader)(unsafe.Pointer(&fn)).Cap = int(nameLength)
+				// fmt.Println("len", ur.FileNameLength, ur.FileNameOffset, "fn", fn)
+				folders[ur.FileReferenceNumber] = folderEntry{fn, ur.ParentFileReferenceNumber}
+			}
+		}
+		med.StartFileReferenceNumber = DWORDLONG(usn)
+	}
+}
+
+// Assemble the path by looking up parent pointers in the folders map
+func GetFullPath(folders map[DWORDLONG]folderEntry, parent DWORDLONG) (name string) {
+	for parent != 0 {
+		fe := folders[parent]
+		name = fe.name + "/" + name
+		parent = fe.parent
+	}
+	return
+}
+
+func processAvailableRecords(path string, ch chan *USN_RECORD, folders map[DWORDLONG]folderEntry) {
+	//drives, _ := walk.DriveNames()
+	//fmt.Println(drives)
+
+	fd, _ := open("\\\\.\\"+path, syscall.O_RDONLY, FILE_ATTRIBUTE_NORMAL)
+	//fmt.Println("fd, err", fd, err)
+
+	ujd, _, _ := queryUsnJournal(fd)
+	//fmt.Printf("ujd = %v\n", ujd)
+
+	rujd := READ_USN_JOURNAL_DATA{ujd.FirstUsn, 0xFFFFFFFF, 0, 0, 1, ujd.UsnJournalID}
+
+	for {
+		var usn USN
+		data, done, err := readUsnJournal(fd, &rujd)
+		if err != nil || done <= uint32(unsafe.Sizeof(usn)) {
+			return
+		}
+
+		usn = *(*USN)(unsafe.Pointer(&data[0]))
+		//fmt.Println("usn", usn)
+
+		var ur *USN_RECORD
+		for i := unsafe.Sizeof(usn); i < uintptr(done); i += uintptr(ur.RecordLength) {
+			ur = (*USN_RECORD)(unsafe.Pointer(&data[i]))
+			if ur.FileAttributes&FILE_ATTRIBUTE_DIRECTORY != 0 {
+				nameLength := uintptr(ur.FileNameLength) / unsafe.Sizeof(ur.FileName[0])
+				fnp := unsafe.Pointer(&data[i+uintptr(ur.FileNameOffset)])
+				fn := (*[10000]uint16)(fnp)[:nameLength]
+				(*reflect.SliceHeader)(unsafe.Pointer(&fn)).Cap = int(nameLength)
+				// fmt.Println("len", ur.FileNameLength, ur.FileNameOffset, "fn", getFullPath(folders, ur.ParentFileReferenceNumber), syscall.UTF16ToString(fn), getUsnJournalReasonString(ur.Reason))
+				ch <- ur
+			}
+		}
+		rujd.StartUsn = usn
+		if usn == 0 {
+			return
+		}
+	}
+}
+
+type PathEvent struct {
+	Path  string
+	Flags uint32
+	Eid   uint64
+}
+
+//func WatchPaths(paths []string, eid int64) chan []PathEvent {
+//}
+
+//func Unwatch(ch chan []PathEvent) {
+//}
