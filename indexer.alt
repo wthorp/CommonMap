@@ -1,0 +1,95 @@
+package main
+
+import (
+	"RPF"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+)
+
+type RpfBox struct {
+	path string
+	box  Box
+}
+
+var shapeFiles map[string]*ShpBoxWriter
+
+func Index() {
+	t0 := time.Now()
+	forShp := make(chan RpfBox) // todo: benchmark w/ pointers
+	done := make(chan bool)
+	go addToShp(forShp, done)
+
+	fileCount := 0
+	// scan the file system for RPF, returning their bounds
+	scanForFiles := func(path string, f os.FileInfo, err error) error {
+		fileCount++
+		return findRpf(path, f, err, forShp, nil)
+	}
+	if runtime.GOOS == "windows" {
+		folders, files := EnumFiles("\\\\.\\F:")
+		for x := range files {
+			path := "F:" + GetFullPath(folders, files[x].parentFrn) + files[x].fileName
+			scanForFiles(path, nil, nil)
+		}
+	} else {
+		fmt.Println("NOT USING WINDOWS")
+		err := filepath.Walk("//", scanForFiles)
+		if err != nil {
+			fmt.Println("filepath walk error: ", err)
+		}
+
+	}
+	close(forShp)
+	<-done
+
+	fmt.Printf("The call took %v to scan %d files.\n", time.Now().Sub(t0), fileCount)
+}
+
+// find Rpf files on the file system
+func findRpf(path string, f os.FileInfo, err error, forShp chan RpfBox, addToShpTree chan RpfBox) error {
+	success, x1, y1, x2, y2 := RPF.TryGetRpfBounds(path)
+	if success {
+		//todo:  make sure we have full file paths at this point
+		rpf := RpfBox{path, [4]float64{x1, y1, x2, y2}}
+		forShp <- rpf
+		//fmt.Println("Found RPF: ", rpf)
+	}
+	return nil
+}
+
+// add found rpf to shapefile
+func addToShp(forShp chan RpfBox, done chan bool) {
+	//todo:  unhardcode, possibly remove existing
+	shapeFiles = make(map[string]*ShpBoxWriter)
+	var shape *ShpBoxWriter
+	x := 0
+	var r RpfBox
+	for r = range forShp {
+		shape = getShapeFile(r.path)
+		shape.WriteBox(r)
+		x++
+	}
+	for _, shape := range shapeFiles {
+		shape.Close()
+	}
+	done <- true
+}
+
+//get a different shapefile for each file type
+func getShapeFile(path string) *ShpBoxWriter {
+	seriesCode := strings.ToUpper(filepath.Ext(path)[1:3])
+	shape := shapeFiles[seriesCode]
+	if shape == nil {
+		var err error
+		shape, err = Create(seriesCode)
+		if err != nil {
+			fmt.Println(err)
+		}
+		shapeFiles[seriesCode] = shape
+	}
+	return shape
+}

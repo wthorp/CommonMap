@@ -1,0 +1,18 @@
+package main
+
+import (
+	"fmt"
+
+	"github.com/lukeroth/gdal"
+)
+
+func main() {
+	drv, err := gdal.GetDriverByName("GTiff")
+	defer drv.Destroy()
+
+	if err != nil {
+		fmt.Println("Failure")
+	} else {
+		fmt.Println("Success")
+	}
+}
