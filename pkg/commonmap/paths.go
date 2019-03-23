@@ -1,4 +1,4 @@
-package main
+package commonmap
 
 import (
 	"log"
@@ -10,9 +10,9 @@ import (
 
 var binDir string
 var mapservPath string
-var mapfilePath string
+var MapfilePath string
 var proj4Path string
-var indexPath string
+var IndexPath string
 var contentPath string
 var appDir string
 var fontsetPath string
@@ -24,9 +24,9 @@ func init() {
 
 	mapservPath = GetPathFatal("bin", "mapserv.exe")
 	proj4Path = GetPathFatal("bin", "nad")
-	indexPath = GetPathFatal("content", "index")
+	IndexPath = GetPathFatal("content", "index")
 	contentPath = GetPathFatal("content")
-	mapfilePath = GetPath("content", "common.map")
+	MapfilePath = GetPath("content", "common.map")
 	fontsetPath = GetPathFatal("content", "fonts", "fontset.txt")
 	appDir = GetPathFatal("content", "website")
 	vectorTemplatePath = GetPathFatal("content", "vector", "Natural_Earth", "template.map")
@@ -46,6 +46,6 @@ func GetPathFatal(elem ...string) string {
 }
 
 func GetIndexPath(fileName string) string {
-	filePath := filepath.Join(indexPath, fileName)
+	filePath := filepath.Join(IndexPath, fileName)
 	return filePath
 }

@@ -5,7 +5,7 @@
 //
 // This code sample is released into the Public Domain.
 //
-package main
+package commonmap
 
 import (
 	"fmt"

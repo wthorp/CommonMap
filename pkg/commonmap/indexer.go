@@ -1,7 +1,6 @@
-package main
+package commonmap
 
 import (
-	"RPF"
 	"fmt"
 	"os"
 	"path"
@@ -9,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"cm/pkg/rpf"
 )
 
 type RpfBox struct {
@@ -38,7 +39,7 @@ func CheckPathAsNtfsDrive(path string) bool {
 	return true
 }
 
-func Index(indexPath string) {
+func Index(IndexPath string) {
 
 	t0 := time.Now()
 	forShp := make(chan RpfBox) // todo: benchmark w/ pointers
@@ -50,12 +51,12 @@ func Index(indexPath string) {
 
 	if runtime.GOOS == "windows" { //todo:  check for NTFS drive
 		//create list of files & folders, while also generating shapefiles
-		folders, files := EnumFiles("\\\\.\\"+indexPath, func(rpfPath string) bool {
+		folders, files := EnumFiles("\\\\.\\"+IndexPath, func(rpfPath string) bool {
 			totalFiles++
-			isRpf, x1, y1, x2, y2 := RPF.TryGetRpfBounds(rpfPath)
+			isRpf, x1, y1, x2, y2 := rpf.TryGetRpfBounds(rpfPath)
 			if isRpf {
-				rpf := RpfBox{rpfPath, [4]float64{x1, y1, x2, y2}}
-				forShp <- rpf //start building SHP / SHX / QIX now
+				rpfBox := RpfBox{rpfPath, [4]float64{x1, y1, x2, y2}}
+				forShp <- rpfBox //start building SHP / SHX / QIX now
 			}
 			return isRpf
 		})
@@ -65,7 +66,7 @@ func Index(indexPath string) {
 
 		rFolders := make(map[DWORDLONG]string)
 		for k, v := range folders {
-			fPath := filepath.Join(indexPath, GetFullPath2(folders, rFolders, v))
+			fPath := filepath.Join(IndexPath, GetFullPath2(folders, rFolders, v))
 			rFolders[k] = fPath
 		}
 
@@ -82,10 +83,10 @@ func Index(indexPath string) {
 		}
 		close(forDbf)
 	} else {
-		err := filepath.Walk(indexPath, func(filepath string, f os.FileInfo, err error) error {
+		err := filepath.Walk(IndexPath, func(filepath string, f os.FileInfo, err error) error {
 			totalFiles++
 			_, fileName := path.Split(filepath)
-			isRpf, x1, y1, x2, y2 := RPF.TryGetRpfBounds(fileName)
+			isRpf, x1, y1, x2, y2 := rpf.TryGetRpfBounds(fileName)
 			if isRpf {
 				rpf := RpfBox{fileName, [4]float64{x1, y1, x2, y2}}
 				forShp <- rpf      // start building SHP / SHX / QIX now

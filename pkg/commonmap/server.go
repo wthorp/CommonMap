@@ -1,4 +1,4 @@
-package main
+package commonmap
 
 import (
 	"fmt"
@@ -11,13 +11,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	//"strings"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
 
-func serve() {
+func Serve() {
 	if os.Getenv("GOMAXPROCS") == "" {
 		runtime.GOMAXPROCS(runtime.NumCPU())
 	}
@@ -27,7 +26,7 @@ func serve() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	go func() {
-		for _ = range c {
+		for range c {
 			os.Exit(1)
 		}
 	}()
@@ -60,9 +59,9 @@ func internalError(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 func MapRender(dst io.Writer, r *http.Request /*mapReq Request2*/) error {
-	//fmt.Println("Map = " + mapfilePath)
+	//fmt.Println("Map = " + MapfilePath)
 
-	wd := filepath.Dir(mapfilePath)
+	wd := filepath.Dir(MapfilePath)
 	handler := cgi.Handler{
 		Path: mapservPath,
 		Dir:  wd,
@@ -72,7 +71,7 @@ func MapRender(dst io.Writer, r *http.Request /*mapReq Request2*/) error {
 		Body: dst,
 	}
 
-	query := "/?MAP=" + url.QueryEscape(mapfilePath) + "&" + r.URL.RawQuery
+	query := "/?MAP=" + url.QueryEscape(MapfilePath) + "&" + r.URL.RawQuery
 	//	if !strings.Contains(query, "GetCapabilities") {
 	//		query = query + "&LAYERS=map"
 	//	}

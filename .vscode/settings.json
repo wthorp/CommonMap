@@ -1,0 +1,11 @@
+{
+    "go.formatTool": "goimports",
+    "go.formatFlags": [
+        "-local",
+        "cm"
+    ],
+    "go.testFlags": [
+        "-count",
+        "1"
+    ],
+}

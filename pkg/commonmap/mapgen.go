@@ -1,7 +1,6 @@
-package main
+package commonmap
 
 import (
-	"RPF"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -10,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"cm/pkg/rpf"
 )
 
 type SeriesRes struct {
@@ -35,24 +36,24 @@ func EscapeSlashes(input string) string {
 
 func WriteMap(w io.Writer) {
 
-	WriteHeader(w, proj4Path, indexPath, "http://localhost:7070/wms")
+	WriteHeader(w, proj4Path, IndexPath, "http://localhost:7070/wms")
 	WriteVector(w, vectorTemplatePath, contentPath)
 	allSeries := make(AllSeries, 0)
 
 	//scan shapepath for existing RPF shapefiles
-	//fmt.Printf("walking " + indexPath)
-	filepath.Walk(indexPath, func(path string, f os.FileInfo, err error) error {
+	//fmt.Printf("walking " + IndexPath)
+	filepath.Walk(IndexPath, func(path string, f os.FileInfo, err error) error {
 		path = strings.ToUpper(filepath.Base(path))
 		if len(path) == 6 && filepath.Ext(path) == ".SHP" {
 			seriesCode := path[0:2]
 			//fmt.Println("SERIES " + seriesCode)
-			series := RPF.DataSeries[seriesCode]
+			series := rpf.DataSeries[seriesCode]
 			scale := series.Scale
 			if scale == -1 {
 				//fmt.Println("SKIPPING BAD SERIES TYPE : " + seriesCode)
 				return nil
 			}
-			if series.Type == RPF.CIB {
+			if series.Type == rpf.CIB {
 				scale *= 15000.0
 			}
 			bestName := series.GroupCode
@@ -99,7 +100,7 @@ MAP
   PROJECTION
     'init=epsg:4326'
   END
-  SHAPEPATH "` + EscapeSlashes(indexPath) + `"
+  SHAPEPATH "` + EscapeSlashes(IndexPath) + `"
   MAXSIZE 4096
   FONTSET "` + EscapeSlashes(fontsetPath) + `"
   
