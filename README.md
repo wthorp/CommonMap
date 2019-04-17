@@ -1,4 +1,7 @@
 # CommonMap
 Fast RPF indexing and MapServer
 
-Commercial licenses available by request
+Not very cleaned up but moved to go modules.
+
+GPL3 licensed.
+Other commercial licenses available by request.
