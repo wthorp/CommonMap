@@ -41,8 +41,6 @@ func Serve() {
 }
 
 func render(w http.ResponseWriter, r *http.Request) {
-
-	//w.Header().Add("Content-Type", "image/png")
 	err := MapRender(w, r)
 
 	if err != nil {
@@ -55,12 +53,12 @@ func internalError(w http.ResponseWriter, r *http.Request, err error) {
 	log.Print(err)
 	w.Header().Set("Content-type", "text/plain")
 	w.WriteHeader(http.StatusInternalServerError)
-	w.Write([]byte("internal error"))
+	if _, writeErr := io.WriteString(w, "internal error"); writeErr != nil {
+		log.Print(writeErr)
+	}
 }
 
 func MapRender(dst io.Writer, r *http.Request /*mapReq Request2*/) error {
-	//fmt.Println("Map = " + MapfilePath)
-
 	wd := filepath.Dir(MapfilePath)
 	handler := cgi.Handler{
 		Path: mapservPath,
@@ -76,7 +74,7 @@ func MapRender(dst io.Writer, r *http.Request /*mapReq Request2*/) error {
 	//		query = query + "&LAYERS=map"
 	//	}
 
-	req, err := http.NewRequest("GET", query, nil)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, query, nil)
 	if err != nil {
 		return err
 	}
@@ -86,9 +84,9 @@ func MapRender(dst io.Writer, r *http.Request /*mapReq Request2*/) error {
 	if w.Code != 200 {
 		return fmt.Errorf("error while calling mapserv CGI (status %d)", w.Code)
 	}
-	//if ct := w.Header().Get("Content-type"); ct != "" && !strings.HasPrefix(ct, "image") {
-	//	return fmt.Errorf(" mapserv CGI did not return image (%v)", w.Header())
-	//}
+	if w.err != nil {
+		return w.err
+	}
 	return nil
 }
 
@@ -102,6 +100,7 @@ type responseRecorder struct {
 	HeaderMap http.Header // the HTTP response headers
 	Body      io.Writer   // if non-nil, the io.Writer to append written data to
 	Flushed   bool
+	err       error
 
 	wroteHeader bool
 }
@@ -117,10 +116,14 @@ func (rw *responseRecorder) Header() http.Header {
 
 func (rw *responseRecorder) Write(buf []byte) (int, error) {
 	if !rw.wroteHeader {
-		rw.WriteHeader(200)
+		rw.WriteHeader(http.StatusOK)
 	}
 	if rw.Body != nil {
-		rw.Body.Write(buf)
+		n, err := rw.Body.Write(buf)
+		if err != nil {
+			rw.err = err
+			return n, err
+		}
 	}
 	return len(buf), nil
 }
@@ -134,7 +137,7 @@ func (rw *responseRecorder) WriteHeader(code int) {
 
 func (rw *responseRecorder) Flush() {
 	if !rw.wroteHeader {
-		rw.WriteHeader(200)
+		rw.WriteHeader(http.StatusOK)
 	}
 	rw.Flushed = true
 }

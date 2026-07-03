@@ -1,0 +1,15 @@
+pre-commit:
+  parallel: true
+  commands:
+    gofmt:
+      glob: "*.go"
+      run: gofmt -w {staged_files}
+      stage_fixed: true
+    go-test:
+      glob: "*.go"
+      run: go test ./...
+
+pre-push:
+  commands:
+    check:
+      run: make check

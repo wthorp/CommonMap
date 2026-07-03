@@ -3,7 +3,6 @@ package commonmap
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -31,7 +30,7 @@ func (slice AllSeries) Swap(i, j int) {
 }
 
 func EscapeSlashes(input string) string {
-	return strings.Replace(input, "\\", "\\\\", -1)
+	return strings.ReplaceAll(input, "\\", "\\\\")
 }
 
 func WriteMap(w io.Writer) {
@@ -40,17 +39,17 @@ func WriteMap(w io.Writer) {
 	WriteVector(w, vectorTemplatePath, contentPath)
 	allSeries := make(AllSeries, 0)
 
-	//scan shapepath for existing RPF shapefiles
-	//fmt.Printf("walking " + IndexPath)
-	filepath.Walk(IndexPath, func(path string, f os.FileInfo, err error) error {
+	// scan shapepath for existing RPF shapefiles
+	err := filepath.Walk(IndexPath, func(path string, f os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		path = strings.ToUpper(filepath.Base(path))
 		if len(path) == 6 && filepath.Ext(path) == ".SHP" {
 			seriesCode := path[0:2]
-			//fmt.Println("SERIES " + seriesCode)
 			series := rpf.DataSeries[seriesCode]
 			scale := series.Scale
 			if scale == -1 {
-				//fmt.Println("SKIPPING BAD SERIES TYPE : " + seriesCode)
 				return nil
 			}
 			if series.Type == rpf.CIB {
@@ -64,12 +63,12 @@ func WriteMap(w io.Writer) {
 		}
 		return nil
 	})
+	if err != nil {
+		fmt.Println("error scanning shape path:", err)
+	}
 
-	//sort by resolution
+	// sort by resolution
 	sort.Sort(allSeries)
-	//for _, series := range allSeries {
-	//	WriteTileLayer(w, series)
-	//}
 	for _, series := range allSeries {
 		WriteShapeLayer(w, series)
 	}
@@ -77,12 +76,12 @@ func WriteMap(w io.Writer) {
 }
 
 func WriteVector(w io.Writer, vectorTemplatePath, shapePath string) {
-	bytes, err := ioutil.ReadFile(vectorTemplatePath)
+	bytes, err := os.ReadFile(vectorTemplatePath)
 	if err != nil {
 		fmt.Println("error reading map template")
 	}
-	vectorText := strings.Replace(string(bytes), "{shpPath}", EscapeSlashes(contentPath), -1)
-	w.Write([]byte(vectorText))
+	vectorText := strings.ReplaceAll(string(bytes), "{shpPath}", EscapeSlashes(contentPath))
+	mustWriteString(w, vectorText)
 }
 
 func WriteHeader(w io.Writer, proj4Path, shapePath string, wmsLink string) {
@@ -129,14 +128,14 @@ MAP
   END
 
 `
-	w.Write([]byte(header))
+	mustWriteString(w, header)
 }
 
 func WriteFooter(w io.Writer) {
 	footer := `
 END
 `
-	w.Write([]byte(footer))
+	mustWriteString(w, footer)
 }
 
 func WriteTileLayer(w io.Writer, series SeriesRes) {
@@ -157,7 +156,7 @@ func WriteTileLayer(w io.Writer, series SeriesRes) {
   END
 
 `
-	w.Write([]byte(layer))
+	mustWriteString(w, layer)
 }
 
 func WriteShapeLayer(w io.Writer, series SeriesRes) {
@@ -185,5 +184,11 @@ func WriteShapeLayer(w io.Writer, series SeriesRes) {
   END
 
 `
-	w.Write([]byte(layer))
+	mustWriteString(w, layer)
+}
+
+func mustWriteString(w io.Writer, value string) {
+	if _, err := io.WriteString(w, value); err != nil {
+		panic(fmt.Errorf("write failed: %w", err))
+	}
 }

@@ -21,7 +21,6 @@ type ShpBoxWriter struct {
 }
 
 func Create(seriesCode string) (*ShpBoxWriter, error) {
-	//filename = filename[0 : len(filename)-3]
 	shp, err := os.Create(GetIndexPath(seriesCode + ".shp"))
 	if err != nil {
 		return nil, err
@@ -43,13 +42,12 @@ func Create(seriesCode string) (*ShpBoxWriter, error) {
 		return nil, err
 	}
 
-	//skip headers at first, we'll write them on Close()
-	shp.Seek(100, os.SEEK_SET)
-	shx.Seek(100, os.SEEK_SET)
-	dbf.Seek(65, os.SEEK_SET)
-	//qix.Seek(40, os.SEEK_SET)
+	// Skip headers at first, we'll write them on Close().
+	mustSeek(shp, 100, os.SEEK_SET)
+	mustSeek(shx, 100, os.SEEK_SET)
+	mustSeek(dbf, 65, os.SEEK_SET)
 
-	//create our w740000000. r+++++   riter
+	// Create the buffered writers used for all subsequent record writes.
 	s := &ShpBoxWriter{
 		shp:       shp,
 		shx:       shx,
@@ -66,9 +64,9 @@ func Create(seriesCode string) (*ShpBoxWriter, error) {
 		qixData:   CreateQixTree(),
 	}
 
-	//pre-populate fixed record values
-	putBigInt32(s.shxBuffer, int32(64), 4) //Content Length (64 16-bit words)
-	putBigInt32(s.shpBuffer, int32(64), 4) //Content Length (64 16-bit words)
+	// Pre-populate fixed record values.
+	putBigInt32(s.shxBuffer, 64, 4)        // Content Length (64 16-bit words)
+	putBigInt32(s.shpBuffer, 64, 4)        // Content Length (64 16-bit words)
 	putLilInt32(s.shpBuffer, int32(5), 8)  // Shape Type (Polygon)
 	putLilInt32(s.shpBuffer, int32(1), 44) // number of parts
 	putLilInt32(s.shpBuffer, int32(5), 48) // number of points
@@ -78,52 +76,49 @@ func Create(seriesCode string) (*ShpBoxWriter, error) {
 }
 
 func (s *ShpBoxWriter) Close() {
-	s.shpW.Flush()
-	s.shxW.Flush()
-	s.dbfW.Flush()
-	s.shp.Seek(0, os.SEEK_SET)
-	s.shx.Seek(0, os.SEEK_SET)
-	s.dbf.Seek(0, os.SEEK_SET)
+	mustFlush(s.shpW)
+	mustFlush(s.shxW)
+	mustFlush(s.dbfW)
+	mustSeek(s.shp, 0, os.SEEK_SET)
+	mustSeek(s.shx, 0, os.SEEK_SET)
+	mustSeek(s.dbf, 0, os.SEEK_SET)
 	s.writeHeader(s.shx)
 	s.writeHeader(s.shp)
 	s.writeDbfHeader(s.dbf)
 
 	s.writePrjContent(s.prj)
 	s.writeQixContent(s.qix)
-	s.shp.Close()
-	s.shx.Close()
-	s.dbf.Close()
-	s.prj.Close()
-	s.qix.Close()
+	mustClose(s.shp)
+	mustClose(s.shx)
+	mustClose(s.dbf)
+	mustClose(s.prj)
+	mustClose(s.qix)
 }
 
-//grow a bbox by another bbpx
+// grow a bbox by another bbox
 func extendBbox(old, new *Box) {
-	if old[0] > new[0] { //minX
+	if old[0] > new[0] { // minX
 		old[0] = new[0]
 	}
-	if old[1] > new[1] { //minY
+	if old[1] > new[1] { // minY
 		old[1] = new[1]
 	}
-	if old[2] < new[2] { //maxX
+	if old[2] < new[2] { // maxX
 		old[2] = new[2]
 	}
-	if old[3] < new[3] { //maxY
+	if old[3] < new[3] { // maxY
 		old[3] = new[3]
 	}
 }
 
-//Byte 0 Record Number Record Number Integer Big
-//Byte 4 Content Length Content Length Integer Big
 func (s *ShpBoxWriter) WriteBox(rpf RpfBox) {
-	// housekeeping
 	var bbox = rpf.box
 	if s.n == 0 {
 		s.bbox = bbox
 	} else {
 		extendBbox(&s.bbox, &bbox)
 	}
-	s.n++ //(begins at 1)
+	s.n++ // begins at 1
 
 	// write shp
 	shpBuffer := s.shpBuffer
@@ -148,25 +143,27 @@ func (s *ShpBoxWriter) WriteBox(rpf RpfBox) {
 	}
 
 	// write shx
-	putBigInt32(s.shxBuffer, int32(-18+(68*s.n)), 0) // start index
-	s.shxW.Write(s.shxBuffer)
+	putBigInt32(s.shxBuffer, -18+(68*s.n), 0) // start index
+	mustBufferedWrite(s.shxW, s.shxBuffer)
 
-	//build in memory QIX tree
+	// Build in-memory QIX tree.
 	s.qixData.Insert(s.n, &bbox)
 }
 
 func (s *ShpBoxWriter) WriteDbf(path string) {
-	//write dbf
-	s.dbfW.WriteString(pad(path))
+	mustWriteStringBuffered(s.dbfW, pad(path))
 }
 
 // Writes SHP/SHX headers to specified file.
 func (s *ShpBoxWriter) writeHeader(file *os.File) {
-	filelength, _ := file.Seek(0, os.SEEK_END)
+	filelength, err := file.Seek(0, os.SEEK_END)
+	if err != nil {
+		panic(fmt.Errorf("seek failed: %w", err))
+	}
 	if filelength == 0 {
 		filelength = 100
 	}
-	file.Seek(0, os.SEEK_SET)
+	mustSeek(file, 0, os.SEEK_SET)
 	// file code
 	Write(file, binary.BigEndian, []int32{9994, 0, 0, 0, 0, 0})
 	// file length
@@ -181,7 +178,7 @@ func (s *ShpBoxWriter) writeHeader(file *os.File) {
 
 // Write DBF header.
 func (s *ShpBoxWriter) writeDbfHeader(file *os.File) {
-	file.Seek(0, os.SEEK_SET)
+	mustSeek(file, 0, os.SEEK_SET)
 	// version, year (YEAR-1990), month, day
 	Write(file, binary.LittleEndian, []byte{3, 24, 5, 3})
 	// number of records
@@ -190,9 +187,9 @@ func (s *ShpBoxWriter) writeDbfHeader(file *os.File) {
 	Write(file, binary.LittleEndian, []int16{65, 255})
 	// padding
 	Write(file, binary.LittleEndian, make([]byte, 20))
-	//location field
-	Write(file, binary.LittleEndian, []byte("location   ")) //Name
-	Write(file, binary.LittleEndian, []byte("C"))           //Fieldtype
+	// location field
+	Write(file, binary.LittleEndian, []byte("location   ")) // Name
+	Write(file, binary.LittleEndian, []byte("C"))           // Fieldtype
 	Write(file, binary.LittleEndian, make([]byte, 4))       // Addr
 	Write(file, binary.LittleEndian, uint8(255))            // Size
 	Write(file, binary.LittleEndian, uint8(0))              // Precision
@@ -206,11 +203,10 @@ func pad(s string) string {
 }
 
 func (s *ShpBoxWriter) writePrjContent(file *os.File) {
-	file.WriteString(`GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]`)
+	mustWriteStringFile(file, `GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]`)
 }
 
 func (s *ShpBoxWriter) writeQixContent(file *os.File) {
-	//fmt.Println("starting writeQixHeader")
 	header := [8]byte{'S', 'Q', 'T', 1, 1, 0, 0, 0}
 	Write(file, binary.BigEndian, header)
 	Write(file, binary.LittleEndian, s.qixData.numFeatures)
@@ -231,7 +227,6 @@ func qixGetNodeSkipOffset(node *qixNode) int32 {
 }
 
 func (s *ShpBoxWriter) writeQixNode(file *os.File, node *qixNode) {
-	//fmt.Println("starting writeQixNode")
 	offset := qixGetNodeSkipOffset(node)
 	size := 44 + (node.numFeatures * 4)
 	qixBuffer := make([]byte, size, size)
@@ -260,9 +255,44 @@ func (s *ShpBoxWriter) writeQixNode(file *os.File, node *qixNode) {
 func Write(w io.Writer, order binary.ByteOrder, data interface{}) {
 	err := binary.Write(w, order, data)
 	if err != nil {
-		fmt.Println(err, data)
+		panic(fmt.Errorf("binary write failed: %w", err))
 	}
-	return
+}
+
+func mustSeek(file *os.File, offset int64, whence int) {
+	if _, err := file.Seek(offset, whence); err != nil {
+		panic(fmt.Errorf("seek failed: %w", err))
+	}
+}
+
+func mustFlush(w *bufio.Writer) {
+	if err := w.Flush(); err != nil {
+		panic(fmt.Errorf("flush failed: %w", err))
+	}
+}
+
+func mustClose(file *os.File) {
+	if err := file.Close(); err != nil {
+		panic(fmt.Errorf("close failed: %w", err))
+	}
+}
+
+func mustBufferedWrite(w *bufio.Writer, buf []byte) {
+	if _, err := w.Write(buf); err != nil {
+		panic(fmt.Errorf("write failed: %w", err))
+	}
+}
+
+func mustWriteStringBuffered(w *bufio.Writer, value string) {
+	if _, err := w.WriteString(value); err != nil {
+		panic(fmt.Errorf("write failed: %w", err))
+	}
+}
+
+func mustWriteStringFile(file *os.File, value string) {
+	if _, err := io.WriteString(file, value); err != nil {
+		panic(fmt.Errorf("write failed: %w", err))
+	}
 }
 
 func putBigInt32(b []byte, v int32, index int32) {

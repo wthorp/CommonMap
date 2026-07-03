@@ -39,7 +39,7 @@ func CheckPathAsNtfsDrive(path string) bool {
 	return true
 }
 
-func Index(IndexPath string) {
+func Index(indexPath string) {
 
 	t0 := time.Now()
 	forShp := make(chan RpfBox) // todo: benchmark w/ pointers
@@ -51,7 +51,7 @@ func Index(IndexPath string) {
 
 	if runtime.GOOS == "windows" { //todo:  check for NTFS drive
 		//create list of files & folders, while also generating shapefiles
-		folders, files := EnumFiles("\\\\.\\"+IndexPath, func(rpfPath string) bool {
+		folders, files := EnumFiles("\\\\.\\"+indexPath, func(rpfPath string) bool {
 			totalFiles++
 			isRpf, x1, y1, x2, y2 := rpf.TryGetRpfBounds(rpfPath)
 			if isRpf {
@@ -66,7 +66,7 @@ func Index(IndexPath string) {
 
 		rFolders := make(map[DWORDLONG]string)
 		for k, v := range folders {
-			fPath := filepath.Join(IndexPath, GetFullPath2(folders, rFolders, v))
+			fPath := filepath.Join(indexPath, GetFullPath2(folders, rFolders, v))
 			rFolders[k] = fPath
 		}
 
@@ -83,7 +83,7 @@ func Index(IndexPath string) {
 		}
 		close(forDbf)
 	} else {
-		err := filepath.Walk(IndexPath, func(filepath string, f os.FileInfo, err error) error {
+		err := filepath.Walk(indexPath, func(filepath string, f os.FileInfo, err error) error {
 			totalFiles++
 			_, fileName := path.Split(filepath)
 			isRpf, x1, y1, x2, y2 := rpf.TryGetRpfBounds(fileName)
@@ -125,7 +125,7 @@ func addToShp(forShp chan RpfBox, forDbf chan string, done chan bool) {
 	done <- true
 }
 
-//get a different shapefile for each file type
+// get a different shapefile for each file type
 func getShapeFile(shpPath string) *ShpBoxWriter {
 	seriesCode := strings.ToUpper(filepath.Ext(shpPath)[1:3])
 	shape := shapeFiles[seriesCode]
