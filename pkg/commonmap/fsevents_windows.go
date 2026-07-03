@@ -1,10 +1,10 @@
-//
+//go:build windows
+
 // File:   fsevents_windows.go
 // Date:   October 29, 2013
 // Author: Peter Krnjevic <pkrnjevic@gmail.com>, on the shoulders of many others
 //
 // This code sample is released into the Public Domain.
-//
 package commonmap
 
 import (

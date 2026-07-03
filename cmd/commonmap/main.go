@@ -32,15 +32,19 @@ func main() {
 	}
 
 	if genMap {
-		//shapeFiles fully populated... build map file
+		// shapeFiles fully populated... build map file
 		mapfile, err := os.Create(commonmap.MapfilePath)
 		if err != nil {
 			fmt.Printf("CANNOT CREATE MAP FILE\n%s\n", err.Error())
 		} else {
 			fmt.Printf("Created map file %s\n", commonmap.MapfilePath)
+			defer func() {
+				if err := mapfile.Close(); err != nil {
+					fmt.Printf("CANNOT CLOSE MAP FILE\n%s\n", err.Error())
+				}
+			}()
+			commonmap.WriteMap(mapfile)
 		}
-		defer mapfile.Close()
-		commonmap.WriteMap(mapfile)
 	}
 
 	if doServe {
@@ -49,11 +53,18 @@ func main() {
 }
 
 func cleanIndexPath() {
-	//todo: error checking
-	filepath.Walk(commonmap.IndexPath, func(path string, f os.FileInfo, err error) error {
+	// todo: error checking
+	if err := filepath.Walk(commonmap.IndexPath, func(path string, f os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		if !f.IsDir() {
-			os.Remove(path)
+			if err := os.Remove(path); err != nil {
+				return err
+			}
 		}
 		return nil
-	})
+	}); err != nil {
+		fmt.Printf("error cleaning index path: %v\n", err)
+	}
 }
