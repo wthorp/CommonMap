@@ -31,11 +31,15 @@ func TestTryGetRpfBounds2(t *testing T){
 
 func TestTryGetRpfBounds(t *testing.T) {
 	file, err := os.Open("IsRPF_test.data")
-	defer file.Close()
 	if err != nil {
 		t.Error("Cannot find source data file")
 		return
 	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

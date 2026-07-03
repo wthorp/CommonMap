@@ -3,7 +3,7 @@ package rpf
 // This file implements conventions on RPF (CIB, CADRG, DTED)
 // data series information and file naming conventions
 
-//Type is RPF data types
+// Type is RPF data types
 type Type int
 
 const (
@@ -15,14 +15,14 @@ const (
 	CDTED
 )
 
-//NitfSeries captures critical information about a RPF data series
+// NitfSeries captures critical information about a RPF data series
 type NitfSeries struct {
 	SeriesCode, GroupCode, ScaleText, Name string
 	Type                                   Type
 	Scale                                  float64
 }
 
-//DataSeries enumerates all RPF data series
+// DataSeries enumerates all RPF data series
 var DataSeries = map[string]NitfSeries{
 	"A1": {"A1", "CM", "1:10K", "Combat Charts (1:10K)", CADRG, 10000},
 	"A2": {"A2", "CM", "1:25K", "Combat Charts (1:25K)", CADRG, 25000},
