@@ -1,7 +1,7 @@
 # CommonMap
 CommonMap turns RPF map data into a deployable web map service.
 
-The goal is simple: take existing NGA-style RPF holdings and make them usable in normal GIS tools without copying, tiling, or converting the source data first. CommonMap indexes the input, preserves the original data and metadata, and serves the result as a WMS that can be used in third-party applications.
+The goal is simple: take existing NGA-style RPF holdings and make them usable in real GIS tools without copying, tiling, or converting the source data first. CommonMap indexes the input, preserves the original data and metadata, and serves the result as a WMS that can be used in third-party applications.
 
 ## What It Does
 
@@ -23,13 +23,13 @@ Compared to prebuilt tile caches, the intended advantage is that the original da
 
 ## Fast Indexing
 
-CommonMap is designed around very fast indexing of large RPF holdings. The original demo positions it as a direct-indexing workflow rather than a copy-and-convert pipeline:
+CommonMap is built around very fast indexing of large RPF holdings. This is a direct-indexing workflow, not a copy-and-convert pipeline:
 
 - indexes the source files in place
 - avoids building a separate raster cache before use
 - scales to very large collections quickly enough to make ad hoc deployment practical
 
-In the demo, CommonMap is described as indexing on the order of tens of thousands of files per second and handling tens of millions of files in minutes on representative hardware. The important part for this project is the workflow: point it at the source data, build the index fast, and start serving map content without reprocessing the entire archive into another format.
+CommonMap was built to make huge RPF collections operational fast. Point it at the source data, build the index quickly, and start serving map content without reprocessing the archive into another format first.
 
 ## Typical Use
 
@@ -43,39 +43,15 @@ The result is a shareable background map service built from the source data you 
 
 ## Related Government Use
 
-The original CommonMap pitch was aimed at deployable geospatial workflows where users need background map context inside existing mission or analysis tools.
+CommonMap was built for deployable geospatial workflows where users need reliable background map context inside existing mission and analysis tools.
 
-That is adjacent to platforms such as Vantor's GEGD Pro portal, but not the same thing. Public Vantor materials describe GEGD Pro as a secure, web-based GEOINT platform built for NGA and used across U.S. government organizations rather than a public portal. In practice, that means access is limited to authorized users with credentials rather than open public access.
+For related context, Vantor's public GEGD Pro material is here:
 
-## Development
+- [Vantor: NGA award to operate and enhance GEGD Pro](https://vantor.com/blog/nga-awards-vantor-dollar70m-option-year-contract-to-operate-and-enhance-governments-primary-commercial-geoint-platform/)
 
-Bootstrap a fresh clone:
+GEGD Pro is Vantor's secure platform for government GEOINT delivery. It is not a public portal; access is limited to authorized users with credentials. Vantor's public contact/support page for the program is here:
 
-```sh
-make setup
-```
-
-This installs the local tool binaries into `./bin` and installs the repo-managed Git hooks into `.git/hooks`.
-
-If you only need one half of setup:
-
-```sh
-make tools
-make hooks
-```
-
-Common local commands:
-
-```sh
-make fmt
-make check
-make vuln
-```
-
-Git hook behavior:
-
-- `pre-commit`: runs `gofmt` on staged Go files and re-stages fixes, then runs `go test ./...`
-- `pre-push`: runs `make check`
+- [Vantor GEGD Program Support](https://vantor.com/contact-us/)
 
 GPL3 licensed.
 Other commercial licenses available by request.
